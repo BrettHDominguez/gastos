@@ -1,20 +1,26 @@
 import sqlite3
 
-# Conectar a la base de datos (se crea si no existe)
+# Conectar a la base de datos
 conn = sqlite3.connect('gastos.db')
 c = conn.cursor()
 
-# Crear tabla de usuarios si no existe
+# Crear tablas si no existen
 c.execute('''
 CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
     password TEXT NOT NULL
 )
 ''')
 
-# Crear tabla de gastos si no existe
+c.execute('''
+CREATE TABLE IF NOT EXISTS categorias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL
+)
+''')
+
 c.execute('''
 CREATE TABLE IF NOT EXISTS gastos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,6 +33,10 @@ CREATE TABLE IF NOT EXISTS gastos (
 )
 ''')
 
-# Guardar cambios y cerrar la conexión
+# Añadir categorías predeterminadas si no existen
+categorias_predeterminadas = ['Alimentos', 'Transporte', 'Entretenimiento', 'Salud', 'Vivienda']
+for categoria in categorias_predeterminadas:
+    c.execute('INSERT OR IGNORE INTO categorias (nombre) VALUES (?)', (categoria,))
+
 conn.commit()
 conn.close()
