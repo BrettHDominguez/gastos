@@ -1,107 +1,129 @@
 import sqlite3
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 # Conexión a la base de datos
-def obtener_conexion():
-    conn = sqlite3.connect('gastos.db')
-    return conn
+conn = sqlite3.connect('gastos.db')
+c = conn.cursor()
 
-# Registrar un nuevo usuario
-def registrar_usuario(nombre, email, password):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    
-    # Insertar el nuevo usuario
-    try:
-        c.execute('INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)', (nombre, email, password))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        st.error("El correo electrónico ya está registrado.")
-    finally:
-        conn.close()
+# Función para crear la base de datos y las tablas necesarias
+def crear_base_datos():
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS categorias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE
+    )
+    ''')
 
-# Verificar si un usuario existe
-def verificar_usuario(email, password):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    
-    c.execute('SELECT id FROM usuarios WHERE email = ? AND password = ?', (email, password))
-    usuario = c.fetchone()
-    conn.close()
-    return usuario
-
-# Agregar un gasto
-def agregar_gasto(categoria, monto, descripcion, fecha, usuario_id):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    
-    c.execute('INSERT INTO gastos (categoria, monto, descripcion, fecha, usuario_id) VALUES (?, ?, ?, ?, ?)', 
-              (categoria, monto, descripcion, fecha, usuario_id))
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS gastos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        categoria TEXT NOT NULL,
+        monto REAL NOT NULL,
+        descripcion TEXT,
+        fecha TEXT NOT NULL
+    )
+    ''')
     conn.commit()
-    conn.close()
 
-# Mostrar los gastos de un usuario
-def mostrar_gastos(usuario_id):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    
-    c.execute('SELECT categoria, monto, descripcion, fecha FROM gastos WHERE usuario_id = ?', (usuario_id,))
+# Función para registrar un nuevo gasto
+def registrar_gasto(categoria, monto, descripcion, fecha):
+    if monto <= 0:
+        st.error("El monto debe ser mayor a 0.")
+        return
+
+    # Insertar gasto en la base de datos
+    c.execute('INSERT INTO gastos (categoria, monto, descripcion, fecha) VALUES (?, ?, ?, ?)', 
+              (categoria, monto, descripcion, fecha))
+    conn.commit()
+    st.success("¡Gasto registrado con éxito!")
+
+# Función para mostrar los gastos en una tabla
+def mostrar_gastos():
+    c.execute('SELECT id, categoria, monto, descripcion, fecha FROM gastos')
     gastos = c.fetchall()
-    
-    conn.close()
-    return gastos
 
-# Función principal de la app
+    if gastos:
+        df = pd.DataFrame(gastos, columns=["ID", "Categoría", "Monto", "Descripción", "Fecha"])
+        df['Monto'] = df['Monto'].apply(lambda x: f"${x:,.2f}")  # Formato de monto con signo $
+        st.write("### Lista de Gastos Registrados")
+        st.table(df)
+
+        # Opción para eliminar un gasto
+        st.write("### Eliminar un Gasto")
+        gasto_a_eliminar = st.selectbox("Selecciona el gasto a eliminar", [""] + [f"{gasto[1]} - {gasto[3]} - {gasto[4]}" for gasto in gastos])
+        
+        if gasto_a_eliminar:
+            gasto_id = gastos[[f"{gasto[1]} - {gasto[3]} - {gasto[4]}" for gasto in gastos].index(gasto_a_eliminar)][0]
+            if st.button(f"Eliminar gasto {gasto_a_eliminar}"):
+                eliminar_gasto(gasto_id)
+                st.success("¡Gasto eliminado con éxito!")
+                mostrar_gastos()  # Mostrar los gastos nuevamente después de la eliminación
+    else:
+        st.write("No tienes gastos registrados.")
+
+# Función para eliminar un gasto
+def eliminar_gasto(gasto_id):
+    c.execute('DELETE FROM gastos WHERE id = ?', (gasto_id,))
+    conn.commit()
+
+# Función para calcular la suma de los gastos
+def calcular_suma_gastos():
+    c.execute('SELECT SUM(monto) FROM gastos')
+    suma = c.fetchone()[0]
+    return suma if suma else 0.0
+
+# Función para agregar una nueva categoría
+def agregar_categoria(categoria):
+    c.execute('INSERT INTO categorias (nombre) VALUES (?)', (categoria,))
+    conn.commit()
+
+# Función principal de la aplicación
 def main():
-    st.title("Seguimiento de Gastos Personales")
+    st.title("Aplicación de Gastos Personales")
+    
+    # Disposición del layout con columnas
+    col1, col2 = st.columns([3, 1])
+    
+    # Mostrar los gastos y la suma total
+    with col1:
+        mostrar_gastos()
+        st.write(f"**Total de Gastos: ${calcular_suma_gastos():,.2f}**")
 
-    menu = ["Iniciar sesión", "Registrar"]
-    opcion = st.sidebar.selectbox("Elige una opción", menu)
-
-    if opcion == "Registrar":
-        st.subheader("Registro de Usuario")
-        nombre = st.text_input("Nombre completo")
-        email = st.text_input("Correo electrónico")
-        password = st.text_input("Contraseña", type="password")
+    # Registrar un nuevo gasto
+    with col2:
+        st.subheader("Registrar un Nuevo Gasto")
         
-        if st.button("Registrar"):
-            registrar_usuario(nombre, email, password)
-            st.success("Usuario registrado con éxito. Ahora puedes iniciar sesión.")
-
-    elif opcion == "Iniciar sesión":
-        st.subheader("Iniciar sesión")
-        email = st.text_input("Correo electrónico")
-        password = st.text_input("Contraseña", type="password")
+        # Entrada para categoría (con selección o personalización)
+        categorias = []
+        c.execute('SELECT nombre FROM categorias')
+        categorias_db = c.fetchall()
+        if categorias_db:
+            categorias = [cat[0] for cat in categorias_db]
         
-        if st.button("Iniciar sesión"):
-            usuario = verificar_usuario(email, password)
-            
-            if usuario:
-                st.success(f"Bienvenido, {email}!")
-                usuario_id = usuario[0]
-                
-                # Mostrar gastos
-                st.subheader("Agregar Gasto")
-                categoria = st.text_input("Categoría del gasto")
-                monto = st.number_input("Monto", min_value=0.0)
-                descripcion = st.text_area("Descripción")
-                fecha = st.date_input("Fecha", format="YYYY-MM-DD")
-                
-                if st.button("Agregar gasto"):
-                    agregar_gasto(categoria, monto, descripcion, fecha, usuario_id)
-                    st.success("Gasto agregado con éxito.")
-                
-                # Mostrar lista de gastos
-                st.subheader("Tus Gastos")
-                gastos = mostrar_gastos(usuario_id)
-                if gastos:
-                    df = pd.DataFrame(gastos, columns=["Categoría", "Monto", "Descripción", "Fecha"])
-                    st.dataframe(df)
-                else:
-                    st.info("No tienes gastos registrados.")
+        categoria = st.selectbox("Selecciona una categoría", categorias + ["Otra (Agregar nueva)"])
+
+        # Si se elige "Otra", permitir agregar una nueva categoría
+        if categoria == "Otra (Agregar nueva)":
+            nueva_categoria = st.text_input("Nombre de la nueva categoría")
+            if nueva_categoria:
+                agregar_categoria(nueva_categoria)
+                categoria = nueva_categoria
+
+        monto = st.number_input("Monto", min_value=0.01, format="%.2f")
+        descripcion = st.text_area("Descripción")
+        fecha = st.date_input("Fecha", value=datetime.today())
+
+        if st.button("Registrar Gasto"):
+            if categoria and monto > 0 and fecha:
+                registrar_gasto(categoria, monto, descripcion, str(fecha))
             else:
-                st.error("Credenciales incorrectas. Intenta de nuevo.")
+                st.error("Por favor, completa todos los campos del gasto.")
 
-if __name__ == "__main__":
+# Crear las tablas necesarias si no existen
+crear_base_datos()
+
+# Ejecutar la aplicación
+if __name__ == '__main__':
     main()
