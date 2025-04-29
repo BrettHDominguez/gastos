@@ -81,7 +81,7 @@ def agregar_categoria(categoria):
 
 # Función principal de la aplicación
 def main():
-    st.title("Aplicación de Gastos Personales")
+    st.title("GASTOS FAMILIA DOMINGUEZ ALAMILLA")
     
     # Disposición del layout con columnas
     col1, col2 = st.columns([3, 1])
