@@ -93,7 +93,7 @@ def main():
 
     # Registrar un nuevo gasto
     with col2:
-        st.subheader("Registrar un Nuevo Gasto")
+        st.subheader("Nuevo Gasto")
         
         # Entrada para categoría (con selección o personalización)
         categorias = []
