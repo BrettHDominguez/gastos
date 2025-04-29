@@ -1,60 +1,94 @@
-# app.py
 import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Seguimiento de Gastos", layout="centered")
-st.title("📊 Seguimiento de Gastos Personales")
+# Conectar a la base de datos
+def get_db_connection():
+    conn = sqlite3.connect('gastos.db')
+    return conn
 
-# Conexión a la base de datos
-conn = sqlite3.connect('gastos.db', check_same_thread=False)
-c = conn.cursor()
+# Función para registrar un nuevo usuario
+def registrar_usuario(nombre, email, password):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)', (nombre, email, password))
+    conn.commit()
+    conn.close()
 
-# Formulario para agregar nuevo gasto
-with st.form("nuevo_gasto"):
-    st.subheader("Agregar nuevo gasto")
-    categoria = st.selectbox("Categoría", ["Alimentación", "Transporte", "Servicios", "Ocio", "Salud", "Otros"])
-    monto = st.number_input("Monto", min_value=0.0, format="%.2f")
-    descripcion = st.text_input("Descripción (opcional)")
-    fecha = st.date_input("Fecha", value=datetime.today())
-    submitted = st.form_submit_button("Agregar")
+# Función para verificar si el usuario existe
+def login_usuario(email, password):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM usuarios WHERE email = ? AND password = ?', (email, password))
+    user = c.fetchone()
+    conn.close()
+    return user
 
-    if submitted:
-        c.execute("INSERT INTO gastos (categoria, monto, descripcion, fecha) VALUES (?, ?, ?, ?)",
-                  (categoria, monto, descripcion, fecha.strftime("%Y-%m-%d")))
-        conn.commit()
-        st.success("✅ Gasto agregado correctamente")
+# Función para mostrar y actualizar las categorías
+def mostrar_categorias():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM categorias')
+    categorias = c.fetchall()
+    conn.close()
+    return [categoria[1] for categoria in categorias]
 
-# Filtros
-st.sidebar.header("🔍 Filtros")
-categorias = [row[0] for row in c.execute("SELECT DISTINCT categoria FROM gastos").fetchall()]
-fecha_min = c.execute("SELECT MIN(fecha) FROM gastos").fetchone()[0]
-fecha_max = c.execute("SELECT MAX(fecha) FROM gastos").fetchone()[0]
+def agregar_categoria(nueva_categoria):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('INSERT INTO categorias (nombre_categoria) VALUES (?)', (nueva_categoria,))
+    conn.commit()
+    conn.close()
 
-categoria_filtro = st.sidebar.multiselect("Filtrar por categoría", categorias, default=categorias)
-fecha_inicio = st.sidebar.date_input("Desde", value=pd.to_datetime(fecha_min) if fecha_min else datetime.today())
-fecha_fin = st.sidebar.date_input("Hasta", value=pd.to_datetime(fecha_max) if fecha_max else datetime.today())
+# Función para agregar un gasto
+def agregar_gasto(id_usuario, categoria, monto, descripcion, fecha):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('INSERT INTO gastos (id_usuario, categoria, monto, descripcion, fecha) VALUES (?, ?, ?, ?, ?)', 
+              (id_usuario, categoria, monto, descripcion, fecha))
+    conn.commit()
+    conn.close()
 
-# Mostrar datos
-query = f"""
-SELECT * FROM gastos
-WHERE categoria IN ({','.join('?' for _ in categoria_filtro)})
-AND fecha BETWEEN ? AND ?
-ORDER BY fecha DESC
-"""
-parametros = categoria_filtro + [fecha_inicio.strftime("%Y-%m-%d"), fecha_fin.strftime("%Y-%m-%d")]
-df = pd.read_sql_query(query, conn, params=parametros)
+# Interfaz de usuario
+st.title("App de Seguimiento de Gastos Personales")
 
-st.subheader("📄 Historial de gastos")
-st.dataframe(df)
+# Página de inicio
+opcion = st.selectbox('Selecciona una opción:', ['Iniciar sesión', 'Registrarse'])
 
-# Resumen
-st.subheader("📈 Resumen")
-if not df.empty:
-    resumen = df.groupby("categoria")["monto"].sum().reset_index()
-    st.bar_chart(resumen.set_index("categoria"))
-else:
-    st.info("No hay datos para mostrar.")
+if opcion == 'Iniciar sesión':
+    email = st.text_input('Email')
+    password = st.text_input('Contraseña', type='password')
+    if st.button('Iniciar sesión'):
+        usuario = login_usuario(email, password)
+        if usuario:
+            st.success('¡Bienvenido, ' + usuario[1] + '!')
+            st.session_state.usuario_id = usuario[0]  # Guardamos el ID del usuario en la sesión
 
-conn.close()
+            # Mostrar categorías existentes
+            categorias = mostrar_categorias()
+            categoria = st.selectbox('Selecciona una categoría:', categorias)
+            monto = st.number_input('Monto', min_value=0.0, step=0.1)
+            descripcion = st.text_area('Descripción')
+            fecha = st.date_input('Fecha', value=datetime.today())
+
+            if st.button('Agregar Gasto'):
+                agregar_gasto(st.session_state.usuario_id, categoria, monto, descripcion, str(fecha))
+                st.success('Gasto registrado correctamente.')
+
+            # Opción para agregar nuevas categorías
+            nueva_categoria = st.text_input('Agregar nueva categoría')
+            if st.button('Agregar Categoría'):
+                agregar_categoria(nueva_categoria)
+                st.success(f'Categoría "{nueva_categoria}" agregada correctamente.')
+        
+        else:
+            st.error('Email o contraseña incorrectos.')
+
+elif opcion == 'Registrarse':
+    nombre = st.text_input('Nombre')
+    email = st.text_input('Email')
+    password = st.text_input('Contraseña', type='password')
+    if st.button('Registrarse'):
+        registrar_usuario(nombre, email, password)
+        st.success('Usuario registrado correctamente. Ahora puedes iniciar sesión.')
